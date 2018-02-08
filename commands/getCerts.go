@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 
+	"github.com/StackExchange/dnscontrol/models"
+	"github.com/StackExchange/dnscontrol/pkg/acme"
 	"github.com/StackExchange/dnscontrol/pkg/normalize"
 	"github.com/urfave/cli"
 )
@@ -89,6 +92,10 @@ func GetCerts(args GetCertsArgs) error {
 	if !args.AgreeTOS {
 		return fmt.Errorf("You must agree to the Let's Encrypt Terms of Service by using -agreeTOS")
 	}
+	if args.Email == "" {
+		return fmt.Errorf("Must provide email to use for Let's Encrypt registration")
+	}
+
 	// load dns config
 	cfg, err := GetDNSConfig(args.GetDNSConfigArgs)
 	if err != nil {
@@ -102,6 +109,7 @@ func GetCerts(args GetCertsArgs) error {
 	if err != nil {
 		return err
 	}
+
 	// load cert list
 	certList := map[string][]string{}
 	f, err := os.Open(args.CertsFile)
@@ -110,12 +118,48 @@ func GetCerts(args GetCertsArgs) error {
 	}
 	defer f.Close()
 	dec := json.NewDecoder(f)
-	err = dec.Decode(certList)
+	err = dec.Decode(&certList)
 	if err != nil {
 		return err
 	}
-	// make sure we have valid LE account
+	if len(certList) == 0 {
+		return fmt.Errorf("Must provide at least one certificate to issue in cert configuration")
+	}
+	if err = validateCertificateList(certList, cfg); err != nil {
+		return err
+	}
+
+	client, err := acme.New(cfg, args.CertDirectory, args.Email)
+	if err != nil {
+		return err
+	}
+	for name, sans := range certList {
+		client.IssueOrRenewCert(name, sans, args.RenewUnderDays)
+	}
 	// issue challenges
 	// fill them
+	return nil
+}
+
+var validCertNamesRegex = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_\-]*$`)
+
+func validateCertificateList(certs map[string][]string, cfg *models.DNSConfig) error {
+	for name, sans := range certs {
+		if !validCertNamesRegex.MatchString(name) {
+			return fmt.Errorf("'%s' is not a valud certificate name. Only alphanumerics, - and _ allowed", name)
+		}
+		if len(sans) > 100 {
+			return fmt.Errorf("certificate '%s' has too many SANs. Max of 100", name)
+		}
+		if len(sans) == 0 {
+			return fmt.Errorf("certificate '%s' needs at least one SAN", name)
+		}
+		for _, san := range sans {
+			d := cfg.DomainContainingFQDN(san)
+			if d == nil {
+				return fmt.Errorf("DNS config has no domain that matches SAN '%s'", san)
+			}
+		}
+	}
 	return nil
 }

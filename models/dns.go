@@ -600,3 +600,18 @@ type Correction struct {
 	F   func() error `json:"-"`
 	Msg string
 }
+
+// DomainContainingFQDN finds the best domain from the dns config for the given record fqdn.
+// It will chose the domain whose name is the longest suffix match for the fqdn.
+func (cfg *DNSConfig) DomainContainingFQDN(fqdn string) *DomainConfig {
+	fqdn = strings.TrimSuffix(fqdn, ".")
+	longestLength := 0
+	var d *DomainConfig
+	for _, dom := range cfg.Domains {
+		if (dom.Name == fqdn || strings.HasSuffix(fqdn, "."+dom.Name)) && len(dom.Name) > longestLength {
+			longestLength = len(dom.Name)
+			d = dom
+		}
+	}
+	return d
+}
