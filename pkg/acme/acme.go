@@ -2,10 +2,15 @@
 package acme
 
 import (
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io/ioutil"
+	"log"
+	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/miekg/dns/dnsutil"
@@ -59,9 +64,54 @@ func NewWithServer(cfg *models.DNSConfig, directory string, email string, server
 // or renew it if it is close enough to the expiration date.
 // It will return true if it issued or updated the certificate.
 func (c *certManager) IssueOrRenewCert(name string, sans []string, renewUnder int) (bool, error) {
-	certResource, failures := c.client.ObtainCertificate(sans, true, nil, true)
+	// to silence acme logging, uncomment this
+	acme.Logger = log.New(ioutil.Discard, "", 0)
+
+	log.Printf("Checking certificate [%s]", name)
+
+	existing, err := c.readCertificate(name)
+	if err != nil {
+		return false, err
+	}
+	var action = func() (acme.CertificateResource, map[string]error) {
+		return c.client.ObtainCertificate(sans, true, nil, true)
+	}
+	if existing != nil {
+		names, daysLeft, err := readCert(existing.Certificate)
+		if err != nil {
+			return false, err
+		}
+		log.Printf("Found existing cert. %d days remaining.", daysLeft)
+		namesOK := dnsNamesEqual(sans, names)
+		if daysLeft >= renewUnder && namesOK {
+			log.Println("Nothing to do")
+			//nothing to do
+			return false, nil
+		}
+		if !namesOK {
+			log.Println("DNS Names don't match expected set. Reissuing.")
+		} else {
+			log.Println("Renewing cert")
+			action = func() (acme.CertificateResource, map[string]error) {
+				cr, err := c.client.RenewCertificate(*existing, true, true)
+				m := map[string]error{}
+				if err != nil {
+					m[""] = err
+				}
+				return cr, m
+			}
+		}
+	} else {
+		log.Println("No existing cert found. Issuing new...")
+	}
+
+	certResource, failures := action()
 	if len(failures) > 0 {
-		return false, fmt.Errorf("FAILURES")
+		fails := []string{}
+		for _, f := range failures {
+			fails = append(fails, f.Error())
+		}
+		return false, fmt.Errorf(strings.Join(fails, "\n"))
 	}
 	fmt.Println("GOT A CERT!!!")
 	return true, c.writeCertificate(name, &certResource)
@@ -88,10 +138,65 @@ func (c *certManager) writeCertificate(name string, cr *acme.CertificateResource
 	return nil
 }
 
+func readCert(pemBytes []byte) (names []string, remaining int, err error) {
+	block, _ := pem.Decode(pemBytes)
+	if block == nil {
+		return nil, 0, fmt.Errorf("Invalid certificate pem data")
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, 0, err
+	}
+	return cert.DNSNames, 42, nil
+}
+
+func dnsNamesEqual(a []string, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	sort.Strings(a)
+	sort.Strings(b)
+	for i, s := range a {
+		if b[i] != s {
+			return false
+		}
+	}
+	return true
+}
+
+func (c *certManager) readCertificate(name string) (*acme.CertificateResource, error) {
+	f, err := os.Open(c.certFile(name, "json"))
+	if err != nil && os.IsNotExist(err) {
+		// if json does not exist, nothing does
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	dec := json.NewDecoder(f)
+	cr := &acme.CertificateResource{}
+	if err = dec.Decode(cr); err != nil {
+		return nil, err
+	}
+	// load cert
+	crtBytes, err := ioutil.ReadFile(c.certFile(name, "crt"))
+	if err != nil {
+		return nil, err
+	}
+	cr.Certificate = crtBytes
+	// load key
+	keyBytes, err := ioutil.ReadFile(c.certFile(name, "key"))
+	if err != nil {
+		return nil, err
+	}
+	cr.PrivateKey = keyBytes
+	return cr, nil
+}
+
 func (c *certManager) Present(domain, token, keyAuth string) error {
-	fmt.Println("PRESENT!", domain)
 	d := c.cfg.DomainContainingFQDN(domain)
-	// copy now so we can add txt record safely
+	// copy now so we can add txt record safely, and just run unmodified version later to cleanup
 	d, err := d.Copy()
 	if err != nil {
 		return err

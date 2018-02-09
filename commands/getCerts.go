@@ -134,10 +134,20 @@ func GetCerts(args GetCertsArgs) error {
 		return err
 	}
 	for name, sans := range certList {
-		client.IssueOrRenewCert(name, sans, args.RenewUnderDays)
+		update, err := client.IssueOrRenewCert(name, sans, args.RenewUnderDays)
+		if err != nil {
+			return err
+		}
+		if update {
+			runCertHook(args.CertDirectory, name)
+		}
 	}
 	// issue challenges
 	// fill them
+	return nil
+}
+
+func runCertHook(dir string, name string) error {
 	return nil
 }
 
