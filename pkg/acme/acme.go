@@ -228,6 +228,9 @@ func (c *certManager) ensureNoPendingCorrections(d *models.DomainConfig) error {
 	}
 	if len(corrections) != 0 {
 		// TODO: maybe allow forcing through this check.
+		for _, c := range corrections {
+			fmt.Println(c.Msg)
+		}
 		return fmt.Errorf("Found %d pending corrections for %s. Not going to proceed issuing certificates", len(corrections), d.Name)
 	}
 	return nil
@@ -236,6 +239,9 @@ func (c *certManager) ensureNoPendingCorrections(d *models.DomainConfig) error {
 func getCorrections(d *models.DomainConfig) ([]*models.Correction, error) {
 	cs := []*models.Correction{}
 	for _, p := range d.DNSProviderInstances {
+		if p.NumberOfNameservers == 0 {
+			continue // only registered dns providers need fill challenge
+		}
 		dc, err := d.Copy()
 		if err != nil {
 			return nil, err
