@@ -13,3 +13,7 @@ integrationTest/env.sh
 /integrationTest/config/*.yaml
 env.sh
 certs/
+zones/
+adzonedump*
+**/*.env
+spfcache.updated.json
