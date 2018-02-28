@@ -12,15 +12,20 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-
-	"github.com/miekg/dns/dnsutil"
+	"time"
 
 	"github.com/StackExchange/dnscontrol/models"
+	"github.com/StackExchange/dnscontrol/pkg/nameservers"
 	"github.com/xenolf/lego/acme"
 )
 
+type CertConfig struct {
+	CertName string   `json:"cert_name"`
+	Names    []string `json:"names"`
+}
+
 type Client interface {
-	IssueOrRenewCert(name string, sans []string, renewUnder int) (bool, error)
+	IssueOrRenewCert(config *CertConfig, renewUnder int) (bool, error)
 }
 
 type certManager struct {
@@ -63,27 +68,27 @@ func NewWithServer(cfg *models.DNSConfig, directory string, email string, server
 // IssueOrRenewCert will obtain a certificate with the given name if it does not exist,
 // or renew it if it is close enough to the expiration date.
 // It will return true if it issued or updated the certificate.
-func (c *certManager) IssueOrRenewCert(name string, sans []string, renewUnder int) (bool, error) {
+func (c *certManager) IssueOrRenewCert(cfg *CertConfig, renewUnder int) (bool, error) {
 	// to silence acme logging, uncomment this
-	acme.Logger = log.New(ioutil.Discard, "", 0)
+	// acme.Logger = log.New(ioutil.Discard, "", 0)
 
-	log.Printf("Checking certificate [%s]", name)
+	log.Printf("Checking certificate [%s]", cfg.CertName)
 
-	existing, err := c.readCertificate(name)
+	existing, err := c.readCertificate(cfg.CertName)
 	if err != nil {
 		return false, err
 	}
 	var action = func() (acme.CertificateResource, map[string]error) {
-		return c.client.ObtainCertificate(sans, true, nil, true)
+		return c.client.ObtainCertificate(cfg.Names, true, nil, true)
 	}
 	if existing != nil {
-		names, daysLeft, err := readCert(existing.Certificate)
+		names, daysLeft, err := getCertInfo(existing.Certificate)
 		if err != nil {
 			return false, err
 		}
-		log.Printf("Found existing cert. %d days remaining.", daysLeft)
-		namesOK := dnsNamesEqual(sans, names)
-		if daysLeft >= renewUnder && namesOK {
+		log.Printf("Found existing cert. %0.2f days remaining.", daysLeft)
+		namesOK := dnsNamesEqual(cfg.Names, names)
+		if daysLeft >= float64(renewUnder) && namesOK {
 			log.Println("Nothing to do")
 			//nothing to do
 			return false, nil
@@ -113,8 +118,8 @@ func (c *certManager) IssueOrRenewCert(name string, sans []string, renewUnder in
 		}
 		return false, fmt.Errorf(strings.Join(fails, "\n"))
 	}
-	fmt.Println("GOT A CERT!!!")
-	return true, c.writeCertificate(name, &certResource)
+	fmt.Printf("Obtained certificate for %s\n", cfg.CertName)
+	return true, c.writeCertificate(cfg.CertName, &certResource)
 }
 
 func (c *certManager) certFile(name, ext string) string {
@@ -138,7 +143,7 @@ func (c *certManager) writeCertificate(name string, cr *acme.CertificateResource
 	return nil
 }
 
-func readCert(pemBytes []byte) (names []string, remaining int, err error) {
+func getCertInfo(pemBytes []byte) (names []string, remaining float64, err error) {
 	block, _ := pem.Decode(pemBytes)
 	if block == nil {
 		return nil, 0, fmt.Errorf("Invalid certificate pem data")
@@ -147,7 +152,8 @@ func readCert(pemBytes []byte) (names []string, remaining int, err error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	return cert.DNSNames, 42, nil
+	var daysLeft = float64(cert.NotAfter.Sub(time.Now())) / float64(time.Hour*24)
+	return cert.DNSNames, daysLeft, nil
 }
 
 func dnsNamesEqual(a []string, b []string) bool {
@@ -196,6 +202,18 @@ func (c *certManager) readCertificate(name string) (*acme.CertificateResource, e
 
 func (c *certManager) Present(domain, token, keyAuth string) error {
 	d := c.cfg.DomainContainingFQDN(domain)
+	// fix NS records for this domain's DNS providers
+	// only need to do this once per domain
+	const metaKey = "x-fixed-nameservers"
+	if d.Metadata[metaKey] == "" {
+		nsList, err := nameservers.DetermineNameservers(d)
+		if err != nil {
+			return err
+		}
+		d.Nameservers = nsList
+		nameservers.AddNSRecords(d)
+		d.Metadata[metaKey] = "true"
+	}
 	// copy now so we can add txt record safely, and just run unmodified version later to cleanup
 	d, err := d.Copy()
 	if err != nil {
@@ -206,15 +224,12 @@ func (c *certManager) Present(domain, token, keyAuth string) error {
 	}
 	fqdn, val, _ := acme.DNS01Record(domain, keyAuth)
 	fmt.Println(fqdn, val)
-	txt := &models.RecordConfig{
-		NameFQDN: strings.TrimSuffix(fqdn, "."),
-		Name:     dnsutil.TrimDomainName(fqdn, d.Name),
-		Type:     "TXT",
-		Target:   val,
-	}
+	txt := &models.RecordConfig{Type: "TXT"}
+	txt.SetTargetTXT(val)
+	txt.SetLabelFromFQDN(fqdn, d.Name)
+
 	d.Records = append(d.Records, txt)
-	getAndRunCorrections(d)
-	return nil
+	return getAndRunCorrections(d)
 }
 
 func (c *certManager) ensureNoPendingCorrections(d *models.DomainConfig) error {
@@ -250,6 +265,9 @@ func getCorrections(d *models.DomainConfig) ([]*models.Correction, error) {
 		if err != nil {
 			return nil, err
 		}
+		for _, c := range corrections {
+			c.Msg = fmt.Sprintf("[%s] %s", p.Name, strings.TrimSpace(c.Msg))
+		}
 		cs = append(cs, corrections...)
 	}
 	return cs, nil
@@ -257,9 +275,14 @@ func getCorrections(d *models.DomainConfig) ([]*models.Correction, error) {
 
 func getAndRunCorrections(d *models.DomainConfig) error {
 	cs, err := getCorrections(d)
+	if err != nil {
+		return err
+	}
+	fmt.Println(len(cs))
 	for _, c := range cs {
 		fmt.Printf("Running [%s]\n", c.Msg)
 		err = c.F()
+		fmt.Println(err)
 		if err != nil {
 			return err
 		}

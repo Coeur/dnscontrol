@@ -34,8 +34,6 @@ type GetCertsArgs struct {
 	CertDirectory  string
 	Email          string
 	AgreeTOS       bool
-
-	UpdateHook string
 }
 
 func (args *GetCertsArgs) flags() []cli.Flag {
@@ -77,13 +75,6 @@ func (args *GetCertsArgs) flags() []cli.Flag {
 		Destination: &args.AgreeTOS,
 		Usage:       `Must provide this to agree to Let's Encrypt terms of service`,
 	})
-	flags = append(flags, cli.StringFlag{
-		Name:        "hook",
-		Destination: &args.UpdateHook,
-		Value:       "hook",
-		Usage:       `Command to execute after a certificate is issued or renewed. Name of cert will be given as first argument`,
-	})
-
 	return flags
 }
 
@@ -111,7 +102,7 @@ func GetCerts(args GetCertsArgs) error {
 	}
 
 	// load cert list
-	certList := map[string][]string{}
+	certList := []*acme.CertConfig{}
 	f, err := os.Open(args.CertsFile)
 	if err != nil {
 		return err
@@ -133,31 +124,25 @@ func GetCerts(args GetCertsArgs) error {
 	if err != nil {
 		return err
 	}
-	for name, sans := range certList {
-		update, err := client.IssueOrRenewCert(name, sans, args.RenewUnderDays)
+	for _, cert := range certList {
+		_, err := client.IssueOrRenewCert(cert, args.RenewUnderDays)
 		if err != nil {
 			return err
 		}
-		if update {
-			runCertHook(args.CertDirectory, name)
-		}
+		// TODO: maybe print something greppable if updated
 	}
-	// issue challenges
-	// fill them
-	return nil
-}
-
-func runCertHook(dir string, name string) error {
 	return nil
 }
 
 var validCertNamesRegex = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_\-]*$`)
 
-func validateCertificateList(certs map[string][]string, cfg *models.DNSConfig) error {
-	for name, sans := range certs {
+func validateCertificateList(certs []*acme.CertConfig, cfg *models.DNSConfig) error {
+	for _, cert := range certs {
+		name := cert.CertName
 		if !validCertNamesRegex.MatchString(name) {
 			return fmt.Errorf("'%s' is not a valud certificate name. Only alphanumerics, - and _ allowed", name)
 		}
+		sans := cert.Names
 		if len(sans) > 100 {
 			return fmt.Errorf("certificate '%s' has too many SANs. Max of 100", name)
 		}

@@ -2,6 +2,7 @@ package models
 
 import (
 	"encoding/json"
+	"strings"
 )
 
 // DefaultTTL is applied to any DNS record without an explicit TTL.
@@ -63,11 +64,11 @@ type Correction struct {
 
 // DomainContainingFQDN finds the best domain from the dns config for the given record fqdn.
 // It will chose the domain whose name is the longest suffix match for the fqdn.
-func (cfg *DNSConfig) DomainContainingFQDN(fqdn string) *DomainConfig {
+func (config *DNSConfig) DomainContainingFQDN(fqdn string) *DomainConfig {
 	fqdn = strings.TrimSuffix(fqdn, ".")
 	longestLength := 0
 	var d *DomainConfig
-	for _, dom := range cfg.Domains {
+	for _, dom := range config.Domains {
 		if (dom.Name == fqdn || strings.HasSuffix(fqdn, "."+dom.Name)) && len(dom.Name) > longestLength {
 			longestLength = len(dom.Name)
 			d = dom
