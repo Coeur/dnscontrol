@@ -29,6 +29,12 @@
     "domain": "$GANDI_DOMAIN",
     "knownFailures": "5"
   },
+  "GANDI-LIVEDNS": {
+    "COMMENT": "5: gandi does not accept TTLs less than 300",
+    "apikey": "$GANDILIVE_KEY",
+    "domain": "$GANDILIVE_DOMAIN",
+    "knownFailures": "5"
+  },
   "GCLOUD": {
     "type": "$GCLOUD_TYPE",
     "client_email": "$GCLOUD_EMAIL",
@@ -56,6 +62,10 @@
     "apikey": "$NAMECHEAP_KEY",
     "apiuser": "$NAMECHEAP_USER",
     "domain": "$NAMECHEAP_DOMAIN"
+  },
+  "OCTODNS": {
+    "domain": "example.com",
+    "directory": "config"
   },
   "ROUTE53": {
     "KeyId": "$R53_KEY_ID",

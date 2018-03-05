@@ -15,6 +15,7 @@ import (
 	_ "github.com/StackExchange/dnscontrol/providers/_all"
 	"github.com/StackExchange/dnscontrol/providers/config"
 	"github.com/miekg/dns/dnsutil"
+	"github.com/pkg/errors"
 )
 
 var providerToRun = flag.String("provider", "", "Provider to run")
@@ -118,7 +119,7 @@ func runTests(t *testing.T, prv providers.DNSServiceProvider, domainName string,
 			// get corrections for first time
 			corrections, err := prv.GetDomainCorrections(dom)
 			if err != nil {
-				t.Fatal(err)
+				t.Fatal(errors.Wrap(err, "runTests"))
 			}
 			if !skipVal && i != *startIdx && len(corrections) == 0 {
 				if tst.Desc != "Empty" {
@@ -337,6 +338,8 @@ func makeTests(t *testing.T) []*TestCase {
 		tc("Delete one", a("@", "1.2.3.4").ttl(500), a("www", "5.6.7.8").ttl(400)),
 		tc("Add back and change ttl", a("www", "5.6.7.8").ttl(700), a("www", "1.2.3.4").ttl(700)),
 		tc("Change targets and ttls", a("www", "1.1.1.1"), a("www", "2.2.2.2")),
+		tc("Create wildcard", a("*", "1.2.3.4"), a("www", "1.1.1.1")),
+		tc("Delete wildcard", a("www", "1.1.1.1")),
 
 		// CNAMES
 		tc("Empty"),
@@ -464,6 +467,9 @@ func makeTests(t *testing.T) []*TestCase {
 		)
 	}
 
+	// NB(tlim): To temporarily skip most of the tests, insert a line like this:
+	//tests = nil
+
 	// TXT (single)
 	tests = append(tests, tc("Empty"),
 		tc("Empty"),
@@ -507,7 +513,7 @@ func makeTests(t *testing.T) []*TestCase {
 		)
 	}
 
-	// ignored recrods
+	// ignored records
 	tests = append(tests,
 		tc("Empty"),
 		tc("Create some records", txt("foo", "simple"), a("foo", "1.2.3.4")),
