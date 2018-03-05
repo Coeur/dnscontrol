@@ -73,7 +73,9 @@ func (c *certManager) IssueOrRenewCert(cfg *CertConfig, renewUnder int) (bool, e
 	// acme.Logger = log.New(ioutil.Discard, "", 0)
 
 	log.Printf("Checking certificate [%s]", cfg.CertName)
-
+	if err := os.MkdirAll(filepath.Join(c.directory, cfg.CertName), perms); err != nil {
+		return false, err
+	}
 	existing, err := c.readCertificate(cfg.CertName)
 	if err != nil {
 		return false, err
@@ -122,8 +124,9 @@ func (c *certManager) IssueOrRenewCert(cfg *CertConfig, renewUnder int) (bool, e
 	return true, c.writeCertificate(cfg.CertName, &certResource)
 }
 
+// filename for certifiacte / key / json file
 func (c *certManager) certFile(name, ext string) string {
-	return filepath.Join(c.directory, name+"."+ext)
+	return filepath.Join(c.directory, "certificates", name, name+"."+ext)
 }
 
 func (c *certManager) writeCertificate(name string, cr *acme.CertificateResource) error {
@@ -137,10 +140,7 @@ func (c *certManager) writeCertificate(name string, cr *acme.CertificateResource
 	if err = ioutil.WriteFile(c.certFile(name, "crt"), cr.Certificate, perms); err != nil {
 		return err
 	}
-	if err = ioutil.WriteFile(c.certFile(name, "key"), cr.PrivateKey, perms); err != nil {
-		return err
-	}
-	return nil
+	return ioutil.WriteFile(c.certFile(name, "key"), cr.PrivateKey, perms)
 }
 
 func getCertInfo(pemBytes []byte) (names []string, remaining float64, err error) {

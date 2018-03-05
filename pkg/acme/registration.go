@@ -51,15 +51,18 @@ func (c *certManager) loadOrCreateAccount() error {
 }
 
 func (c *certManager) accountFile() string {
-	return filepath.Join(c.directory, "letsencrypt_account.json")
+	return filepath.Join(c.directory, ".letsencrypt", "account.json")
 }
 func (c *certManager) accountKeyFile() string {
-	return filepath.Join(c.directory, "letsencrypt_account.key")
+	return filepath.Join(c.directory, ".letsencrypt", "account.key")
 }
 
 const perms os.FileMode = 0644 // TODO: probably lock this down more
 
 func (c *certManager) createAccount() error {
+	if err := os.MkdirAll(filepath.Join(c.directory, ".letsencrypt"), perms); err != nil {
+		return err
+	}
 	privateKey, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
 	if err != nil {
 		return err
