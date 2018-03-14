@@ -14,6 +14,7 @@ import (
 //go:generate go run build/generate/generate.go build/generate/featureMatrix.go
 
 func main() {
+	fmt.Println(os.Args)
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	os.Exit(commands.Run(versionString()))
 }

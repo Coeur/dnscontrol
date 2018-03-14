@@ -43,7 +43,7 @@ func (args *GetCertsArgs) flags() []cli.Flag {
 	flags = append(flags, cli.StringFlag{
 		Name:        "acme",
 		Destination: &args.ACMEServer,
-		Value:       "staging",
+		Value:       "live",
 		Usage:       `ACME server to issue against. Give full directory endpoint. Can also use 'staging' or 'live' for standard Let's Encrpyt endpoints.`,
 	})
 	flags = append(flags, cli.IntFlag{
@@ -55,7 +55,7 @@ func (args *GetCertsArgs) flags() []cli.Flag {
 	flags = append(flags, cli.StringFlag{
 		Name:        "dir",
 		Destination: &args.CertDirectory,
-		Value:       "certs",
+		Value:       ".",
 		Usage:       `Directory to store certificates and other data`,
 	})
 	flags = append(flags, cli.StringFlag{
@@ -79,6 +79,7 @@ func (args *GetCertsArgs) flags() []cli.Flag {
 }
 
 func GetCerts(args GetCertsArgs) error {
+	fmt.Println(args.JSFile)
 	// check agree flag
 	if !args.AgreeTOS {
 		return fmt.Errorf("You must agree to the Let's Encrypt Terms of Service by using -agreeTOS")
@@ -119,8 +120,13 @@ func GetCerts(args GetCertsArgs) error {
 	if err = validateCertificateList(certList, cfg); err != nil {
 		return err
 	}
-
-	client, err := acme.New(cfg, args.CertDirectory, args.Email)
+	acmeServer := args.ACMEServer
+	if acmeServer == "live" {
+		acmeServer = acme.LetsEncryptLive
+	} else if acmeServer == "staging" {
+		acmeServer = acme.LetsEncryptStage
+	}
+	client, err := acme.New(cfg, args.CertDirectory, args.Email, acmeServer)
 	if err != nil {
 		return err
 	}

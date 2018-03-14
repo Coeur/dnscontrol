@@ -43,7 +43,7 @@ func (c *certManager) loadOrCreateAccount() error {
 	if err != nil {
 		return err
 	}
-	c.client, err = acme.NewClient(c.acmeDirectory, c.account, acme.EC384)
+	c.client, err = acme.NewClient(c.acmeDirectory, c.account, acme.RSA2048) // TODO: possibly make configurable on a cert-by cert basis
 	if err != nil {
 		return err
 	}

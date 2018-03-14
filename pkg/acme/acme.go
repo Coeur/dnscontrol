@@ -39,16 +39,12 @@ type certManager struct {
 	client  *acme.Client
 }
 
-func New(cfg *models.DNSConfig, directory string, email string) (Client, error) {
-	return NewWithServer(cfg, directory, email, LetsEncryptStage)
-}
-
 const (
-	LetsEncryptMain  = "https://acme-v01.api.letsencrypt.org/directory"
+	LetsEncryptLive  = "https://acme-v01.api.letsencrypt.org/directory"
 	LetsEncryptStage = "https://acme-staging.api.letsencrypt.org/directory"
 )
 
-func NewWithServer(cfg *models.DNSConfig, directory string, email string, server string) (Client, error) {
+func New(cfg *models.DNSConfig, directory string, email string, server string) (Client, error) {
 	c := &certManager{
 		directory:      directory,
 		email:          email,
@@ -132,6 +128,9 @@ func (c *certManager) certFile(name, ext string) string {
 func (c *certManager) writeCertificate(name string, cr *acme.CertificateResource) error {
 	jDAt, err := json.MarshalIndent(cr, "", "  ")
 	if err != nil {
+		return err
+	}
+	if err = os.MkdirAll(filepath.Dir(c.certFile(name, "json")), perms); err != nil {
 		return err
 	}
 	if err = ioutil.WriteFile(c.certFile(name, "json"), jDAt, perms); err != nil {
