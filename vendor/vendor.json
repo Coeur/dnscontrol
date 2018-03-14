@@ -565,12 +565,6 @@
 			"revisionTime": "2018-01-06T19:10:48Z"
 		},
 		{
-			"checksumSHA1": "+C6ri1bjdCoizDe693WGf+/mW60=",
-			"path": "github.com/xenolf/lego/acme",
-			"revision": "550e9cec7b1762bbb9a46b9a14407c76ef6f42a3",
-			"revisionTime": "2018-01-22T21:11:06Z"
-		},
-		{
 			"checksumSHA1": "MLGPYuRc7BtUuKmIV8f/jXpYWvg=",
 			"path": "github.com/xlucas/go-ovh/ovh",
 			"revision": "ef0d1f19f39c291ed08d5d5258175d8a2134ab1c",
