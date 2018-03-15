@@ -16,7 +16,7 @@ import (
 
 	"github.com/StackExchange/dnscontrol/models"
 	"github.com/StackExchange/dnscontrol/pkg/nameservers"
-	"github.com/xenolf/lego/acme"
+	"github.com/xenolf/lego/acmev2"
 )
 
 type CertConfig struct {
@@ -55,9 +55,8 @@ func New(cfg *models.DNSConfig, directory string, email string, server string) (
 	if err := c.loadOrCreateAccount(); err != nil {
 		return nil, err
 	}
-	c.client.ExcludeChallenges([]acme.Challenge{acme.HTTP01, acme.TLSSNI01})
+	c.client.ExcludeChallenges([]acme.Challenge{acme.HTTP01})
 	c.client.SetChallengeProvider(acme.DNS01, c)
-	c.client.AgreeToTOS()
 	return c, nil
 }
 
@@ -69,7 +68,7 @@ func (c *certManager) IssueOrRenewCert(cfg *CertConfig, renewUnder int) (bool, e
 	// acme.Logger = log.New(ioutil.Discard, "", 0)
 
 	log.Printf("Checking certificate [%s]", cfg.CertName)
-	if err := os.MkdirAll(filepath.Join(c.directory, cfg.CertName), perms); err != nil {
+	if err := os.MkdirAll(filepath.Dir(c.certFile(cfg.CertName, "json")), perms); err != nil {
 		return false, err
 	}
 	existing, err := c.readCertificate(cfg.CertName)
@@ -128,9 +127,6 @@ func (c *certManager) certFile(name, ext string) string {
 func (c *certManager) writeCertificate(name string, cr *acme.CertificateResource) error {
 	jDAt, err := json.MarshalIndent(cr, "", "  ")
 	if err != nil {
-		return err
-	}
-	if err = os.MkdirAll(filepath.Dir(c.certFile(name, "json")), perms); err != nil {
 		return err
 	}
 	if err = ioutil.WriteFile(c.certFile(name, "json"), jDAt, perms); err != nil {
@@ -198,8 +194,11 @@ func (c *certManager) readCertificate(name string) (*acme.CertificateResource, e
 	cr.PrivateKey = keyBytes
 	return cr, nil
 }
+func (c *certManager) Timeout() (timeout, interval time.Duration) {
+	return 5 * time.Minute, time.Second
+}
 
-func (c *certManager) Present(domain, token, keyAuth string) error {
+func (c *certManager) Present(domain, token, keyAuth string) (e error) {
 	d := c.cfg.DomainContainingFQDN(domain)
 	// fix NS records for this domain's DNS providers
 	// only need to do this once per domain
@@ -226,8 +225,8 @@ func (c *certManager) Present(domain, token, keyAuth string) error {
 	txt := &models.RecordConfig{Type: "TXT"}
 	txt.SetTargetTXT(val)
 	txt.SetLabelFromFQDN(fqdn, d.Name)
-
 	d.Records = append(d.Records, txt)
+
 	return getAndRunCorrections(d)
 }
 
@@ -250,11 +249,14 @@ func (c *certManager) ensureNoPendingCorrections(d *models.DomainConfig) error {
 	return nil
 }
 
+// IgnoredProviders is a lit of provider names that should not be used to fill challenges.
+var IgnoredProviders = map[string]bool{}
+
 func getCorrections(d *models.DomainConfig) ([]*models.Correction, error) {
 	cs := []*models.Correction{}
 	for _, p := range d.DNSProviderInstances {
-		if p.NumberOfNameservers == 0 {
-			continue // only registered dns providers need fill challenge
+		if IgnoredProviders[p.Name] {
+			continue
 		}
 		dc, err := d.Copy()
 		if err != nil {
@@ -277,11 +279,10 @@ func getAndRunCorrections(d *models.DomainConfig) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println(len(cs))
+	fmt.Printf("%d corrections\n", len(cs))
 	for _, c := range cs {
 		fmt.Printf("Running [%s]\n", c.Msg)
 		err = c.F()
-		fmt.Println(err)
 		if err != nil {
 			return err
 		}

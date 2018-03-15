@@ -12,8 +12,9 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
-	"github.com/xenolf/lego/acme"
+	"github.com/xenolf/lego/acmev2"
 )
 
 func (c *certManager) loadOrCreateAccount() error {
@@ -50,17 +51,22 @@ func (c *certManager) loadOrCreateAccount() error {
 	return nil
 }
 
+func (c *certManager) accountDirectory() string {
+	dir := strings.TrimPrefix(c.acmeDirectory, "https://")
+	dir = strings.TrimPrefix(dir, "http://")
+	return filepath.Join(c.directory, ".letsencrypt", dir)
+}
 func (c *certManager) accountFile() string {
-	return filepath.Join(c.directory, ".letsencrypt", "account.json")
+	return filepath.Join(c.accountDirectory(), "account.json")
 }
 func (c *certManager) accountKeyFile() string {
-	return filepath.Join(c.directory, ".letsencrypt", "account.key")
+	return filepath.Join(c.accountDirectory(), "account.key")
 }
 
 const perms os.FileMode = 0644 // TODO: probably lock this down more
 
 func (c *certManager) createAccount() error {
-	if err := os.MkdirAll(filepath.Join(c.directory, ".letsencrypt"), perms); err != nil {
+	if err := os.MkdirAll(c.accountDirectory(), perms); err != nil {
 		return err
 	}
 	privateKey, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
@@ -76,7 +82,7 @@ func (c *certManager) createAccount() error {
 	if err != nil {
 		return err
 	}
-	reg, err := c.client.Register()
+	reg, err := c.client.Register(true)
 	if err != nil {
 		return err
 	}

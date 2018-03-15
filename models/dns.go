@@ -47,6 +47,10 @@ type Nameserver struct {
 	Target string `json:"target"`
 }
 
+func (n *Nameserver) String() string {
+	return n.Name
+}
+
 // StringsToNameservers constructs a list of *Nameserver structs using a list of FQDNs.
 func StringsToNameservers(nss []string) []*Nameserver {
 	nservers := []*Nameserver{}

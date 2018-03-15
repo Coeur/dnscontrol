@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 
 	"github.com/StackExchange/dnscontrol/models"
 	"github.com/StackExchange/dnscontrol/pkg/acme"
@@ -34,6 +35,8 @@ type GetCertsArgs struct {
 	CertDirectory  string
 	Email          string
 	AgreeTOS       bool
+
+	IgnoredProviders string
 }
 
 func (args *GetCertsArgs) flags() []cli.Flag {
@@ -75,6 +78,12 @@ func (args *GetCertsArgs) flags() []cli.Flag {
 		Destination: &args.AgreeTOS,
 		Usage:       `Must provide this to agree to Let's Encrypt terms of service`,
 	})
+	flags = append(flags, cli.StringFlag{
+		Name:        "skip",
+		Destination: &args.IgnoredProviders,
+		Value:       "",
+		Usage:       `Provider names to not use for challenges (comma separated)`,
+	})
 	return flags
 }
 
@@ -100,6 +109,10 @@ func GetCerts(args GetCertsArgs) error {
 	_, err = InitializeProviders(args.CredsFile, cfg, false)
 	if err != nil {
 		return err
+	}
+
+	for _, skip := range strings.Split(args.IgnoredProviders, ",") {
+		acme.IgnoredProviders[skip] = true
 	}
 
 	// load cert list
